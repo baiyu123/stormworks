@@ -12,13 +12,15 @@ curr_tick = 0
 count = 0
 rot = 0
 min_detect_dist = 3
-target_cluster_width = 5
+target_cluster_width = 10
 yaw_channel = 25
 gpsx_channel = 26
 gpsy_channel = 27
+up_range_channel = 9
+down_range_channel = 10
 
-function calculateDist(x1, y1, x2, y2)
-	dist = math.sqrt((x2-x1)^2 + (y2-y1)^2)
+function calculateDist(x1, y1, z1, x2, y2, z2)
+	dist = math.sqrt((x2-x1)^2 + (y2-y1)^2 + (z2-z1)^2)
 	return dist
 end
 
@@ -39,30 +41,39 @@ function mergeClosedScan()
 		-- remove the target that is too closed
 		for j, single_target2 in pairs(targets) do
 			if j ~= i then
-				diff = calculateDist(single_target[4], single_target[5], single_target2[4], single_target2[5])
+				diff = calculateDist(single_target[4], single_target[5], single_target[6], single_target2[4], single_target2[5], single_target2[6])
 				if diff < target_cluster_width then
-					targets[j] = nil
+					-- delete older scan
+					if single_target[3] > single_target2[3] then
+						targets[j] = nil
+					else
+						targets[i] = nil
+					end
 				end
 			end
 		end
 	end
 end
 
+previous_up = false
+previous_down = false
+function checkRange()
+	--dealing with range
+	if input.getBool(up_range_channel) and not previous_up then
+		range_index = range_index + 1
+	elseif input.getBool(down_range_channel) and not previous_down then
+		range_index = range_index - 1
+	end
+	previous_up = input.getBool(up_range_channel)
+	previous_down = input.getBool(down_range_channel)
+	range_index = range_index%5
+	radar_range = radar_ranges[range_index+1]
+end
+
 function onTick()
 	gps_x = input.getNumber(gpsx_channel)
 	gps_y = input.getNumber(gpsy_channel)
-
-	
-	--dealing with range
-	--if input.getBool(9) then
-	--	range_index = range_index + 1
-	--end
-	--if input.getBool(10) then
-	--	range_index = range_index - 1
-	--end
-	--range_index = range_index%5 + 1
-	--radar_range = radar_ranges[range_index]
-	
+	checkRange()
 	-- get target data
 	for i = 0,7,1
 	do
@@ -82,9 +93,10 @@ function onTick()
 				elevation_rad = (single_target[2]/0.5)*math.pi
 				target_x = gps_x + dist*math.cos(azimuth_rad)
 				target_y = gps_y + dist*math.sin(azimuth_rad)
-				target_z = dist*math
+				target_z = dist*math.sin(elevation_rad)
 				single_target[4] = target_x
 				single_target[5] = target_y
+				single_target[6] = target_z
 				targets[count] = single_target
 				count = count + 1
 			end
