@@ -13,6 +13,9 @@ count = 0
 rot = 0
 min_detect_dist = 3
 target_cluster_width = 5
+yaw_channel = 25
+gpsx_channel = 26
+gpsy_channel = 27
 
 function calculateDist(x1, y1, x2, y2)
 	dist = math.sqrt((x2-x1)^2 + (y2-y1)^2)
@@ -46,12 +49,13 @@ function mergeClosedScan()
 end
 
 function onTick()
-	gps_x = input.getNumber(30)
-	gps_y = input.getNumber(31)
+	gps_x = input.getNumber(gpsx_channel)
+	gps_y = input.getNumber(gpsy_channel)
+
 	
 	--dealing with range
 	--if input.getBool(9) then
-		range_index = range_index + 1
+	--	range_index = range_index + 1
 	--end
 	--if input.getBool(10) then
 	--	range_index = range_index - 1
@@ -62,21 +66,23 @@ function onTick()
 	-- get target data
 	for i = 0,7,1
 	do
-	valid_target = input.getBool(i)
+	valid_target = input.getBool(i+1)
 		if valid_target then
-			target_dist = input.getNumber(i*4+1)
+			target_dist = input.getNumber(i*3+1)
 			-- remove target that is too closed and too far
-			if target_dist > min_detect_dist and input.getNumber(i*4+4) == 1 then
+			if target_dist > min_detect_dist and target_dist < radar_range then
 				single_target = {}
 				-- target distance, azimuth angle, elevation angle, time since detection
-				single_target[0] = input.getNumber(i*4+1)
-				single_target[1] = input.getNumber(i*4+2) 
-				single_target[2] = input.getNumber(i*4+3)
+				single_target[0] = input.getNumber(i*3+1)
+				single_target[1] = input.getNumber(i*3+2) 
+				single_target[2] = input.getNumber(i*3+3)
 				single_target[3] = curr_tick
 				dist = single_target[0]
-				azimuth = (single_target[1]/0.5)*math.pi
-				target_x = gps_x + dist*math.cos(azimuth)
-				target_y = gps_y + dist*math.sin(azimuth)
+				azimuth_rad = (single_target[1]/0.5)*math.pi
+				elevation_rad = (single_target[2]/0.5)*math.pi
+				target_x = gps_x + dist*math.cos(azimuth_rad)
+				target_y = gps_y + dist*math.sin(azimuth_rad)
+				target_z = dist*math
 				single_target[4] = target_x
 				single_target[5] = target_y
 				targets[count] = single_target
@@ -84,7 +90,7 @@ function onTick()
 			end
 		end
 	end
-	rot = (input.getNumber(29)%1)*2*math.pi
+	rot = (input.getNumber(yaw_channel)%1)*2*math.pi
 	scanReset()
 	mergeClosedScan()
 	curr_tick = curr_tick + 1
