@@ -27,6 +27,7 @@ down_range_ch = 10
 lock_target_ch = 11
 clear_target_ch = 12
 two_pi = 2*math.pi
+target_dot_erase_min_time = 100
 
 function calculateDist(x1, y1, z1, x2, y2, z2)
 	dist = math.sqrt((x2-x1)^2 + (y2-y1)^2)
@@ -35,9 +36,9 @@ end
 
 function scanReset()
 	for i, single_target in pairs(targets) do
-		azimuth = single_target[1]
+		scan_azimuth = single_target[1]
 		--reset when the scan comes back
-		if math.abs(azimuth - rot) < 0.1 and curr_tick - single_target[3] > 200 then 
+		if math.abs(scan_azimuth - rot) < 0.1 and curr_tick - single_target[3] > target_dot_erase_min_time then 
 			targets[i] = nil
 		end
 	end
@@ -133,7 +134,6 @@ end
 
 rot_body_radar = -math.pi/2
 function rotate(x,y,z,alpha,beta,lambda)
-	lambda = lambda
 	s_a = sin(alpha)
 	c_a = cos(alpha)
 	s_b = sin(beta)
@@ -151,7 +151,7 @@ function onTick()
 	gps_y = input.getNumber(gpsy_ch)
 	altitude = input.getNumber(alt_ch)
 	--inertia frame east counter cw positive
-	yaw_east = scaleToRadian(input.getNumber(compass_ch))+math.pi/2
+	yaw = scaleToRadian(input.getNumber(compass_ch))
 	pitch = scaleToRadian(input.getNumber(pitch_ch))
 	roll = input.getNumber(roll_ch)
 	checkRange()
@@ -166,7 +166,8 @@ function onTick()
 				target = {}
 				-- target distance, azimuth angle, elevation angle, time since detection
 				target[0] = input.getNumber(i*3+1)
-				target[1] = (-scaleToRadian(input.getNumber(i*3+2)))%two_pi
+				-- rotate to align to 0 degree at x axis
+				target[1] = (-scaleToRadian(input.getNumber(i*3+2))+math.pi/2)%two_pi
 				target[2] = scaleToRadian(input.getNumber(i*3+3))
 				target[3] = curr_tick
 				dist = target[0]
@@ -175,27 +176,25 @@ function onTick()
 				target_x_radar = dist*cos(target[1])
 				target_y_radar = dist*sin(target[1])
 				target_z_radar = dist*sin(target[2])
-				target_x, target_y, target_z = rotate(target_x_radar, target_y_radar, target_z_radar, yaw_east, pitch, roll)
+				target_x, target_y, target_z = rotate(target_x_radar, target_y_radar, target_z_radar, yaw, pitch, roll)
 				target[4] = target_x
 				target[5] = target_y
 				target[6] = target_z
-				target[7] = target_x_radar
-				target[8] = target_y_radar
-				target[9] = target_z_radar
 				targets[count] = target
 				count = count + 1
 			end
 		end
 	end
+	-- rotate to align to 0 degree at x axis
 	rot = (-scaleToRadian(input.getNumber(yaw_ch))+0.5*math.pi)%two_pi
 	scanReset()
 	mergeClosedScan()
 	trackTarget()
 	output.setNumber(1, radar_range)
 	if curr_track_target ~= nil then
-		output.setNumber(2, curr_track_target[4])
-		output.setNumber(3, curr_track_target[5])
-		output.setNumber(4, curr_track_target[6])
+		output.setNumber(2, target[4])
+		output.setNumber(3, target[5])
+		output.setNumber(4, target[6])
 	end
 
 	curr_tick = curr_tick + 1
@@ -209,7 +208,7 @@ function onDraw()
 		length = length + 1
 		dist = target[0]
 		-- radar facing forward + pi/2
-		azimuth = target[1]+math.pi/2
+		azimuth = target[1]
 		local target_x = centerX + ((dist/radar_range)*pixel_radius)*math.cos(azimuth)
 		local target_y = centerY + -((dist/radar_range)*pixel_radius)*math.sin(azimuth)
 		screen.drawCircleF(target_x, target_y, 1)
@@ -218,7 +217,7 @@ function onDraw()
 	screen.setColor(0,255,0)
 	if curr_track_target ~= nil then
 		dist = curr_track_target[0]
-		azimuth = curr_track_target[1]+math.pi/2
+		azimuth = curr_track_target[1]
 		local track_pix_x = centerX + ((dist/radar_range)*pixel_radius)*math.cos(azimuth)
 		local track_pix_y = centerY + -((dist/radar_range)*pixel_radius)*math.sin(azimuth)
 		screen.drawRect(track_pix_x-1, track_pix_y-1,3,3) 
