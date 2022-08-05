@@ -7,10 +7,10 @@ tilt_down = 0
 
 -- Tick function that will be executed every logic tick
 function onTick()
-	yaw = input.getNumber(1)			 -- Read the first number from the script's composite input
-	pitch = input.getNumber(2)
-	tilt_left = input.getNumber(3)
-	tilt_down = input.getNumber(4)
+	yaw = -input.getNumber(1)*math.pi*2			 -- Read the first number from the script's composite input
+	pitch = input.getNumber(2)*math.pi*2
+	tilt_left = input.getNumber(3)*math.pi*2
+	tilt_down = input.getNumber(4)*math.pi*2
 	
 	if (pitch > 1.4)
 	then
