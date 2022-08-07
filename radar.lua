@@ -28,8 +28,14 @@ lock_target_ch = 11
 clear_target_ch = 12
 two_pi = 2*math.pi
 target_dot_erase_min_time = 100
+erase_max_time = 500
 
 function calculateDist(x1, y1, z1, x2, y2, z2)
+	dist = math.sqrt((x2-x1)^2 + (y2-y1)^2 + (z2-z1)^2)
+	return dist
+end
+
+function calculateDistNoZ(x1, y1, x2, y2)
 	dist = math.sqrt((x2-x1)^2 + (y2-y1)^2)
 	return dist
 end
@@ -37,8 +43,9 @@ end
 function scanReset()
 	for i, single_target in pairs(targets) do
 		scan_azimuth = single_target[1]
-		--reset when the scan comes back
-		if math.abs(scan_azimuth - rot) < 0.1 and curr_tick - single_target[3] > target_dot_erase_min_time then 
+		delta_tick = curr_tick - single_target[3]
+		--reset when the scan comes back or exceed max time
+		if delta_tick > erase_max_time or (math.abs(scan_azimuth - rot) < 0.1 and delta_tick > target_dot_erase_min_time) then 
 			targets[i] = nil
 		end
 	end
@@ -81,7 +88,7 @@ end
 
 prev_lock_pressed = false
 curr_track_target = nil
-new_old_max_dist = 15
+new_old_max_dist = 100
 new_old_dist = 999
 function trackTarget()
 	if input.getBool(clear_target_ch) then
@@ -92,12 +99,12 @@ function trackTarget()
 		local min_dist = 999999
 		if curr_track_target ~= nil then
 			-- get the target whose distance is minimum that greater than lowerbound
-			dist_lower_bound = calculateDist(gps_x, gps_y, 0, curr_track_target[4], curr_track_target[5], curr_track_target[6])
+			dist_lower_bound = calculateDistNoZ(gps_x, gps_y, curr_track_target[4], curr_track_target[5])
 			dis_min = 999999
 		end
 		local foundNext = false
 		for i, single_target in pairs(targets) do
-			local dist = calculateDist(gps_x, gps_y, 0, single_target[4], single_target[5], single_target[6])
+			local dist = calculateDistNoZ(gps_x, gps_y, single_target[4], single_target[5])
 			if dist > dist_lower_bound and dist < min_dist then
 				min_dist = dist
 				curr_track_target = single_target
@@ -110,11 +117,20 @@ function trackTarget()
 	end			
 	-- update track target
 	if curr_track_target ~= nil then
+		closest_new_target = nil
+		closest_new_old_dist = 999999
 		for i, single_target in pairs(targets) do
-			new_old_dist = calculateDist(curr_track_target[4], curr_track_target[5], curr_track_target[6], single_target[4], single_target[5], single_target[6])
-			if new_old_dist < new_old_max_dist then
-				curr_track_target = single_target
+			new_old_dist = calculateDistNoZ(curr_track_target[4], curr_track_target[5], single_target[4], single_target[5])
+			-- only update using new info and with limit
+			if new_old_dist < new_old_max_dist and curr_track_target[3] < single_target[3] then
+				if new_old_dist < closest_new_old_dist then
+					closest_new_target = single_target
+					closest_new_old_dist = new_old_dist
+				end
 			end
+		end
+		if closest_new_target ~= nil then
+			curr_track_target = closest_new_target
 		end
 	end
 	prev_lock_pressed = input.getBool(lock_target_ch)
@@ -192,11 +208,10 @@ function onTick()
 	trackTarget()
 	output.setNumber(1, radar_range)
 	if curr_track_target ~= nil then
-		output.setNumber(2, target[4])
-		output.setNumber(3, target[5])
-		output.setNumber(4, target[6])
+		output.setNumber(2, curr_track_target[4])
+		output.setNumber(3, curr_track_target[5])
+		output.setNumber(4, curr_track_target[6])
 	end
-
 	curr_tick = curr_tick + 1
 	
 end
