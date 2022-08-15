@@ -88,7 +88,7 @@ end
 
 prev_lock_pressed = false
 curr_track_target = nil
-new_old_max_dist = 100
+new_old_max_dist = 50
 new_old_dist = 999
 function trackTarget()
 	if input.getBool(clear_target_ch) then
@@ -99,12 +99,12 @@ function trackTarget()
 		local min_dist = 999999
 		if curr_track_target ~= nil then
 			-- get the target whose distance is minimum that greater than lowerbound
-			dist_lower_bound = calculateDistNoZ(gps_x, gps_y, curr_track_target[4], curr_track_target[5])
+			dist_lower_bound = calculateDist(gps_x, gps_y, altitude, curr_track_target[4], curr_track_target[5], curr_track_target[6])
 			dis_min = 999999
 		end
 		local foundNext = false
 		for i, single_target in pairs(targets) do
-			local dist = calculateDistNoZ(gps_x, gps_y, single_target[4], single_target[5])
+			local dist = calculateDist(gps_x, gps_y, altitude, single_target[4], single_target[5], single_target[6])
 			if dist > dist_lower_bound and dist < min_dist then
 				min_dist = dist
 				curr_track_target = single_target
@@ -120,7 +120,7 @@ function trackTarget()
 		closest_new_target = nil
 		closest_new_old_dist = 999999
 		for i, single_target in pairs(targets) do
-			new_old_dist = calculateDistNoZ(curr_track_target[4], curr_track_target[5], single_target[4], single_target[5])
+			new_old_dist = calculateDist(curr_track_target[4], curr_track_target[5], curr_track_target[6], single_target[4], single_target[5], single_target[6])
 			-- only update using new info and with limit
 			if new_old_dist < new_old_max_dist and curr_track_target[3] < single_target[3] then
 				if new_old_dist < closest_new_old_dist then
@@ -148,26 +148,53 @@ function sin(input)
 	return math.sin(input)
 end
 
-rot_body_radar = -math.pi/2
-function rotate(x,y,z,alpha,beta,lambda)
-	s_a = sin(alpha)
-	c_a = cos(alpha)
-	s_b = sin(beta)
-	c_b = cos(beta)
-	s_l = sin(lambda)
-	c_l = cos(lambda)
-	new_x = c_a*c_b*x + (c_a*s_b*s_l-s_a*c_l)*y + (c_a*s_b*c_l+s_a*s_l)*z + gps_x
-	new_y = s_a*c_b*x + (s_a*s_b*s_l+c_a*c_l)*y + (s_a*s_b*c_l-c_a*s_l)*z + gps_y
-	new_z = -s_b*x + c_b*s_l*y + c_b*c_l*z + altitude
-	return new_x, new_y, new_z
+function calculateTrgtPos(roll, pitch, yaw, x_ned, y_ned, z_ned, trgt_dist, trgt_azmth, trgt_elev)
+	-- Body FRD frame
+	body_x = trgt_dist * math.cos(-trgt_elev) * math.cos(trgt_azmth)
+	body_y = trgt_dist * math.cos(-trgt_elev) * math.sin(trgt_azmth)
+	body_z = trgt_dist * math.sin(-trgt_elev)
+	
+	sy = math.sin(yaw)
+	sp = math.sin(pitch)
+	sr = math.sin(roll)
+	cy = math.cos(yaw)
+	cp = math.cos(pitch)
+	cr = math.cos(roll)
+
+	R11 = cp*cy
+	R12 = sr*sp*cy - cr*sy
+	R13 = cr*sp*cy + sr*sy
+	R21 = cp*sy
+	R22 = sr*sp*sy + cr*cy
+	R23 = cr*sp*sy - sr*cy
+	R31 = -sp
+	R32 = sr*cp
+	R33 = cr*cp
+
+	-- Target is now in NED frame.
+	ned_x = R11 * body_x + R12 * body_y + R13 * body_z + x_ned
+	ned_y = R21 * body_x + R22 * body_y + R23 * body_z + y_ned
+	ned_z = R31 * body_x + R32 * body_y + R33 * body_z + z_ned
+	
+	-- Game uses ENU frame, convert to that
+	enu_x = ned_y
+	enu_y = ned_x
+	enu_z = -ned_z
+	
+	return enu_x, enu_y, enu_z
+	end
+
+function get_target_xyz(roll, pitch, yaw, gps_x, gps_y, altitude, trgt_dist, trgt_azmth, trgt_elev)
+	return calculateTrgtPos(roll, pitch, yaw, gps_y, gps_x, -altitude, trgt_dist, trgt_azmth*2*math.pi, trgt_elev*2*math.pi)
 end
+
 
 function onTick()
 	gps_x = input.getNumber(gpsx_ch)
 	gps_y = input.getNumber(gpsy_ch)
 	altitude = input.getNumber(alt_ch)
 	--inertia frame east counter cw positive
-	yaw = scaleToRadian(input.getNumber(compass_ch))
+	yaw = -scaleToRadian(input.getNumber(compass_ch))
 	pitch = scaleToRadian(input.getNumber(pitch_ch))
 	roll = input.getNumber(roll_ch)
 	checkRange()
@@ -181,21 +208,24 @@ function onTick()
 			if target_dist > min_detect_dist and target_dist < radar_range then
 				target = {}
 				-- target distance, azimuth angle, elevation angle, time since detection
-				target[0] = input.getNumber(i*3+1)
+				dist = input.getNumber(i*3+1)
+				azmth = input.getNumber(i*3+2)
+				elev = input.getNumber(i*3+3)
+				target[0] = dist
 				-- rotate to align to 0 degree at x axis
-				target[1] = (-scaleToRadian(input.getNumber(i*3+2))+math.pi/2)%two_pi
-				target[2] = scaleToRadian(input.getNumber(i*3+3))
+				target[1] = (-scaleToRadian(azmth)+math.pi/2)%two_pi
+				target[2] = scaleToRadian(elev)
 				target[3] = curr_tick
-				dist = target[0]
-				-- azimuth_rad_east = target[1]+heading_rad_east+rot_body_radar
-				-- azimuth_rad_east = radarToWorld(gps_x,gps_y,altitude, heading_rad_east, 0,0,rot_body_radar)
+				
 				target_x_radar = dist*cos(target[1])
 				target_y_radar = dist*sin(target[1])
 				target_z_radar = dist*sin(target[2])
-				target_x, target_y, target_z = rotate(target_x_radar, target_y_radar, target_z_radar, yaw, pitch, roll)
+				target_x, target_y, target_z = get_target_xyz(roll, pitch, yaw, gps_x, gps_y, altitude, dist, azmth, elev)
 				target[4] = target_x
 				target[5] = target_y
 				target[6] = target_z
+				target[7] = azmth
+				target[8] = elev
 				targets[count] = target
 				count = count + 1
 			end
@@ -211,6 +241,14 @@ function onTick()
 		output.setNumber(2, curr_track_target[4])
 		output.setNumber(3, curr_track_target[5])
 		output.setNumber(4, curr_track_target[6])
+		output.setNumber(5, curr_track_target[7])
+		output.setNumber(6, curr_track_target[8])
+	else
+		output.setNumber(2, 0)
+		output.setNumber(3, 0)
+		output.setNumber(4, 0)
+		output.setNumber(5, 0)
+		output.setNumber(6, 0)
 	end
 	curr_tick = curr_tick + 1
 	
